@@ -1,5 +1,4 @@
-
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import Layout from './components/Layout';
 import Dashboard from './pages/Dashboard';
 import Login from './pages/Login';
@@ -9,60 +8,73 @@ import Admin from './pages/Admin';
 import { User, WatchlistItem, TradeSignal } from './types';
 import { MOCK_WATCHLIST, MOCK_SIGNALS } from './constants';
 
-const SESSION_DURATION_MS = 6.5 * 60 * 60 * 1000; // 6.5 Hours
+const SESSION_DURATION_MS = 6.5 * 60 * 60 * 1000;
 const SESSION_KEY = 'libra_user_session';
 
 const App: React.FC = () => {
   const [user, setUser] = useState<User | null>(() => {
-    // Attempt to restore session from LocalStorage
     const savedSession = localStorage.getItem(SESSION_KEY);
     if (savedSession) {
       try {
         const { user, timestamp } = JSON.parse(savedSession);
-        const now = Date.now();
-        if (now - timestamp < SESSION_DURATION_MS) {
-          return user;
-        } else {
-          localStorage.removeItem(SESSION_KEY);
-        }
-      } catch (e) {
-        console.error("Failed to restore session", e);
-      }
+        if (Date.now() - timestamp < SESSION_DURATION_MS) return user;
+        localStorage.removeItem(SESSION_KEY);
+      } catch (e) { console.error(e); }
     }
     return null;
   });
 
   const [page, setPage] = useState('dashboard');
   
-  // Initialize Watchlist from LocalStorage or Fallback to Mock
   const [watchlist, setWatchlist] = useState<WatchlistItem[]>(() => {
     const saved = localStorage.getItem('libra_watchlist');
     return saved ? JSON.parse(saved) : MOCK_WATCHLIST;
   });
 
-  // Initialize Signals from LocalStorage or Fallback to Mock
   const [signals, setSignals] = useState<TradeSignal[]>(() => {
     const saved = localStorage.getItem('libra_signals');
     return saved ? JSON.parse(saved) : MOCK_SIGNALS;
   });
 
-  // Persist Watchlist changes
+  // REAL-TIME SYNC ENGINE (Simulated Backend via LocalStorage Events)
+  const syncData = useCallback(() => {
+    const latestWatch = localStorage.getItem('libra_watchlist');
+    const latestSignals = localStorage.getItem('libra_signals');
+    if (latestWatch) setWatchlist(JSON.parse(latestWatch));
+    if (latestSignals) setSignals(JSON.parse(latestSignals));
+  }, []);
+
+  useEffect(() => {
+    // 1. Listen for cross-tab updates (Instant)
+    window.addEventListener('storage', (e) => {
+      if (e.key === 'libra_watchlist' || e.key === 'libra_signals') {
+        syncData();
+      }
+    });
+
+    // 2. High-frequency polling fallback (Every 2 seconds) for smoother experience
+    const pollInterval = setInterval(syncData, 2000);
+
+    return () => {
+      window.removeEventListener('storage', syncData);
+      clearInterval(pollInterval);
+    };
+  }, [syncData]);
+
+  // Persist local changes from Admin
   useEffect(() => {
     localStorage.setItem('libra_watchlist', JSON.stringify(watchlist));
   }, [watchlist]);
 
-  // Persist Signal changes
   useEffect(() => {
     localStorage.setItem('libra_signals', JSON.stringify(signals));
   }, [signals]);
 
   const handleLogin = (newUser: User) => {
-    const session = {
-      user: newUser,
-      timestamp: Date.now()
-    };
+    const session = { user: newUser, timestamp: Date.now() };
     localStorage.setItem(SESSION_KEY, JSON.stringify(session));
     setUser(newUser);
+    syncData(); // Immediate handshake on login
   };
 
   const handleLogout = () => {
@@ -70,9 +82,7 @@ const App: React.FC = () => {
     setUser(null);
   };
 
-  if (!user) {
-    return <Login onLogin={handleLogin} />;
-  }
+  if (!user) return <Login onLogin={handleLogin} />;
 
   const renderPage = () => {
     switch(page) {
@@ -80,18 +90,14 @@ const App: React.FC = () => {
         case 'stats': return <Stats />;
         case 'rules': return <Rules />;
         case 'admin': 
-            if (user.isAdmin) {
-                return (
-                    <Admin 
-                        watchlist={watchlist} 
-                        onUpdateWatchlist={setWatchlist}
-                        signals={signals}
-                        onUpdateSignals={setSignals}
-                    />
-                );
-            } else {
-                return <div className="text-center text-red-400 mt-20 font-mono">ACCESS DENIED: ADMIN ONLY</div>;
-            }
+            return user.isAdmin ? (
+                <Admin 
+                    watchlist={watchlist} 
+                    onUpdateWatchlist={setWatchlist}
+                    signals={signals}
+                    onUpdateSignals={setSignals}
+                />
+            ) : <Dashboard watchlist={watchlist} signals={signals} />;
         default: return <Dashboard watchlist={watchlist} signals={signals} />;
     }
   };
