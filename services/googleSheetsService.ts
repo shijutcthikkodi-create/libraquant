@@ -1,6 +1,6 @@
 import { TradeSignal, WatchlistItem, User } from '../types';
 
-const SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbyzmnhEsjwlQcxfchobNHnpRSe9H8cNWAuxTEblsWxLLyXiNH18D_JxaMDhV9QwJ8l5/exec';
+const SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbyFbphSzUzTcjwiqGs3EdCcg2y67fOhmvuq65cXLSvaUJXFRDyrMTJkm6OdrVNPMk_A/exec';
 
 export interface SheetData {
   signals: TradeSignal[];

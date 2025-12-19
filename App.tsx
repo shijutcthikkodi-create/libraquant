@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import Layout from './components/Layout';
 import Dashboard from './pages/Dashboard';
 import Login from './pages/Login';
@@ -8,11 +8,14 @@ import Admin from './pages/Admin';
 import { User, WatchlistItem, TradeSignal } from './types';
 import { fetchSheetData } from './services/googleSheetsService';
 import { MOCK_WATCHLIST, MOCK_SIGNALS } from './constants';
-import { WifiOff, RefreshCw, ExternalLink, ShieldAlert, AlertCircle } from 'lucide-react';
+import { WifiOff, RefreshCw, ExternalLink, ShieldAlert, Volume2, VolumeX } from 'lucide-react';
 
 const SESSION_DURATION_MS = 6.5 * 60 * 60 * 1000;
 const SESSION_KEY = 'libra_user_session';
 const POLL_INTERVAL = 15000; 
+
+// Professional notification sound URL
+const NOTIFICATION_SOUND_URL = 'https://assets.mixkit.co/active_storage/sfx/2358/2358-preview.mp3';
 
 const App: React.FC = () => {
   const [user, setUser] = useState<User | null>(() => {
@@ -33,13 +36,59 @@ const App: React.FC = () => {
   const [users, setUsers] = useState<User[]>([]);
   const [isSyncing, setIsSyncing] = useState(false);
   const [connectionStatus, setConnectionStatus] = useState<'connected' | 'error' | 'syncing'>('connected');
+  const [soundEnabled, setSoundEnabled] = useState(() => localStorage.getItem('libra_sound_enabled') === 'true');
+  
+  const prevSignalsRef = useRef<string>('');
+  const audioRef = useRef<HTMLAudioElement | null>(null);
 
-  const syncFromSheets = useCallback(async () => {
+  // Initialize Audio
+  useEffect(() => {
+    audioRef.current = new Audio(NOTIFICATION_SOUND_URL);
+    audioRef.current.volume = 0.5;
+  }, []);
+
+  const playNotification = useCallback(() => {
+    if (soundEnabled && audioRef.current) {
+      audioRef.current.currentTime = 0;
+      audioRef.current.play().catch(e => console.log("Audio play blocked by browser. Click anywhere to enable."));
+    }
+  }, [soundEnabled]);
+
+  const toggleSound = () => {
+    const newState = !soundEnabled;
+    setSoundEnabled(newState);
+    localStorage.setItem('libra_sound_enabled', String(newState));
+    // Brief play to "arm" the browser's audio context
+    if (newState && audioRef.current) {
+      audioRef.current.volume = 0;
+      audioRef.current.play().then(() => {
+        audioRef.current!.volume = 0.5;
+      }).catch(() => {});
+    }
+  };
+
+  const syncFromSheets = useCallback(async (isInitial = false) => {
     setIsSyncing(true);
     setConnectionStatus('syncing');
     try {
         const remoteData = await fetchSheetData();
         if (remoteData) {
+          // Detect changes for sound notification
+          const signalsJson = JSON.stringify(remoteData.signals);
+          if (!isInitial && prevSignalsRef.current && prevSignalsRef.current !== signalsJson) {
+            // Check if there are new IDs or status changes
+            const oldSignals: TradeSignal[] = JSON.parse(prevSignalsRef.current);
+            const hasSignificantChange = remoteData.signals.some(newSig => {
+              const oldSig = oldSignals.find(s => s.id === newSig.id);
+              return !oldSig || oldSig.status !== newSig.status;
+            });
+
+            if (hasSignificantChange) {
+              playNotification();
+            }
+          }
+          prevSignalsRef.current = signalsJson;
+
           setSignals(remoteData.signals);
           setWatchlist(remoteData.watchlist);
           setUsers(remoteData.users);
@@ -56,11 +105,11 @@ const App: React.FC = () => {
     } finally {
         setIsSyncing(false);
     }
-  }, []);
+  }, [playNotification]);
 
   useEffect(() => {
-    syncFromSheets();
-    const poll = setInterval(syncFromSheets, POLL_INTERVAL);
+    syncFromSheets(true);
+    const poll = setInterval(() => syncFromSheets(false), POLL_INTERVAL);
     
     const handleStorageChange = (e: StorageEvent) => {
         if (['libra_signals', 'libra_watchlist', 'libra_users'].includes(e.key || '')) {
@@ -83,7 +132,7 @@ const App: React.FC = () => {
     const session = { user: newUser, timestamp: Date.now() };
     localStorage.setItem(SESSION_KEY, JSON.stringify(session));
     setUser(newUser);
-    syncFromSheets();
+    syncFromSheets(true);
   };
 
   const handleLogout = () => {
@@ -92,7 +141,7 @@ const App: React.FC = () => {
   };
 
   const handleTestLink = () => {
-    window.open('https://script.google.com/macros/s/AKfycbyzmnhEsjwlQcxfchobNHnpRSe9H8cNWAuxTEblsWxLLyXiNH18D_JxaMDhV9QwJ8l5/exec', '_blank');
+    window.open('https://script.google.com/macros/s/AKfycbyFbphSzUzTcjwiqGs3EdCcg2y67fOhmvuq65cXLSvaUJXFRDyrMTJkm6OdrVNPMk_A/exec', '_blank');
   };
 
   if (!user) return <Login onLogin={handleLogin} />;
@@ -121,18 +170,31 @@ const App: React.FC = () => {
     <Layout user={user} onLogout={handleLogout} currentPage={page} onNavigate={setPage}>
       <div className="relative">
         <div className="fixed top-4 right-4 z-[60] flex items-center space-x-2">
+            {/* Sound Toggle */}
+            <button 
+              onClick={toggleSound}
+              className={`p-2 rounded-full border transition-all shadow-lg flex items-center justify-center ${
+                soundEnabled 
+                ? 'bg-emerald-500/20 border-emerald-500/50 text-emerald-400 hover:bg-emerald-500/30' 
+                : 'bg-slate-800 border-slate-700 text-slate-500 hover:bg-slate-700'
+              }`}
+              title={soundEnabled ? "Mute Alerts" : "Unmute Alerts"}
+            >
+              {soundEnabled ? <Volume2 size={16} /> : <VolumeX size={16} />}
+            </button>
+
             {connectionStatus === 'error' ? (
-                <button onClick={syncFromSheets} className="bg-rose-600 text-white px-3 py-1 rounded-full text-[10px] font-bold shadow-lg flex items-center">
+                <button onClick={() => syncFromSheets(false)} className="bg-rose-600 text-white px-3 py-1.5 rounded-full text-[10px] font-bold shadow-lg flex items-center">
                     <WifiOff size={10} className="mr-1.5" />
                     <span>SYNC ERROR</span>
                 </button>
             ) : connectionStatus === 'syncing' ? (
-                <div className="bg-blue-600 text-white px-3 py-1 rounded-full text-[10px] font-bold shadow-lg flex items-center">
+                <div className="bg-blue-600 text-white px-3 py-1.5 rounded-full text-[10px] font-bold shadow-lg flex items-center">
                     <RefreshCw size={10} className="animate-spin mr-1.5" />
                     <span>UPDATING</span>
                 </div>
             ) : (
-                <div className="bg-slate-800 text-emerald-400 px-3 py-1 rounded-full text-[10px] font-bold border border-slate-700 flex items-center">
+                <div className="bg-slate-800 text-emerald-400 px-3 py-1.5 rounded-full text-[10px] font-bold border border-slate-700 flex items-center">
                     <div className="w-1.5 h-1.5 bg-emerald-500 rounded-full mr-1.5 animate-pulse"></div>
                     <span>LIVE</span>
                 </div>
@@ -150,7 +212,7 @@ const App: React.FC = () => {
                     <button onClick={handleTestLink} className="flex-1 bg-blue-600 py-2 rounded text-xs font-bold text-white flex items-center justify-center">
                         <ExternalLink size={12} className="mr-2" /> Test Script
                     </button>
-                    <button onClick={syncFromSheets} className="flex-1 bg-slate-800 py-2 rounded text-xs font-bold text-white flex items-center justify-center">
+                    <button onClick={() => syncFromSheets(false)} className="flex-1 bg-slate-800 py-2 rounded text-xs font-bold text-white flex items-center justify-center">
                         <RefreshCw size={12} className="mr-2" /> Retry
                     </button>
                 </div>
