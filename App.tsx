@@ -1,3 +1,4 @@
+
 import React, { useState, useEffect } from 'react';
 import Layout from './components/Layout';
 import Dashboard from './pages/Dashboard';
@@ -8,8 +9,29 @@ import Admin from './pages/Admin';
 import { User, WatchlistItem, TradeSignal } from './types';
 import { MOCK_WATCHLIST, MOCK_SIGNALS } from './constants';
 
+const SESSION_DURATION_MS = 6.5 * 60 * 60 * 1000; // 6.5 Hours
+const SESSION_KEY = 'libra_user_session';
+
 const App: React.FC = () => {
-  const [user, setUser] = useState<User | null>(null);
+  const [user, setUser] = useState<User | null>(() => {
+    // Attempt to restore session from LocalStorage
+    const savedSession = localStorage.getItem(SESSION_KEY);
+    if (savedSession) {
+      try {
+        const { user, timestamp } = JSON.parse(savedSession);
+        const now = Date.now();
+        if (now - timestamp < SESSION_DURATION_MS) {
+          return user;
+        } else {
+          localStorage.removeItem(SESSION_KEY);
+        }
+      } catch (e) {
+        console.error("Failed to restore session", e);
+      }
+    }
+    return null;
+  });
+
   const [page, setPage] = useState('dashboard');
   
   // Initialize Watchlist from LocalStorage or Fallback to Mock
@@ -34,8 +56,22 @@ const App: React.FC = () => {
     localStorage.setItem('libra_signals', JSON.stringify(signals));
   }, [signals]);
 
+  const handleLogin = (newUser: User) => {
+    const session = {
+      user: newUser,
+      timestamp: Date.now()
+    };
+    localStorage.setItem(SESSION_KEY, JSON.stringify(session));
+    setUser(newUser);
+  };
+
+  const handleLogout = () => {
+    localStorage.removeItem(SESSION_KEY);
+    setUser(null);
+  };
+
   if (!user) {
-    return <Login onLogin={setUser} />;
+    return <Login onLogin={handleLogin} />;
   }
 
   const renderPage = () => {
@@ -63,7 +99,7 @@ const App: React.FC = () => {
   return (
     <Layout 
         user={user} 
-        onLogout={() => setUser(null)}
+        onLogout={handleLogout}
         currentPage={page}
         onNavigate={setPage}
     >
