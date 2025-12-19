@@ -18,8 +18,8 @@ export enum OptionType {
 
 export interface TradeSignal {
   id: string;
-  instrument: string; // e.g., NIFTY
-  symbol: string; // e.g., 22500
+  instrument: string;
+  symbol: string;
   type: OptionType;
   action: 'BUY' | 'SELL';
   entryPrice: number;
@@ -40,20 +40,22 @@ export interface User {
   name: string;
   expiryDate: string;
   isAdmin: boolean;
+  password?: string;
+  deviceId?: string | null;
 }
 
 export interface PnLStats {
   totalTrades: number;
   winRate: number;
   netPoints: number;
-  estimatedPnL: number; // In Rupees
+  estimatedPnL: number;
   accuracy: number;
 }
 
 export interface WatchlistItem {
   symbol: string;
   price: number;
-  change: number; // Percentage
+  change: number;
   isPositive: boolean;
   lastUpdated: string;
 }

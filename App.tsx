@@ -12,7 +12,7 @@ import { WifiOff, RefreshCw, ExternalLink, ShieldAlert, AlertCircle } from 'luci
 
 const SESSION_DURATION_MS = 6.5 * 60 * 60 * 1000;
 const SESSION_KEY = 'libra_user_session';
-const POLL_INTERVAL = 10000; 
+const POLL_INTERVAL = 15000; 
 
 const App: React.FC = () => {
   const [user, setUser] = useState<User | null>(() => {
@@ -30,6 +30,7 @@ const App: React.FC = () => {
   const [page, setPage] = useState('dashboard');
   const [watchlist, setWatchlist] = useState<WatchlistItem[]>(MOCK_WATCHLIST);
   const [signals, setSignals] = useState<TradeSignal[]>(MOCK_SIGNALS);
+  const [users, setUsers] = useState<User[]>([]);
   const [isSyncing, setIsSyncing] = useState(false);
   const [connectionStatus, setConnectionStatus] = useState<'connected' | 'error' | 'syncing'>('connected');
 
@@ -41,10 +42,12 @@ const App: React.FC = () => {
         if (remoteData) {
           setSignals(remoteData.signals);
           setWatchlist(remoteData.watchlist);
+          setUsers(remoteData.users);
           setConnectionStatus('connected');
           
           localStorage.setItem('libra_signals', JSON.stringify(remoteData.signals));
           localStorage.setItem('libra_watchlist', JSON.stringify(remoteData.watchlist));
+          localStorage.setItem('libra_users', JSON.stringify(remoteData.users));
         } else {
           setConnectionStatus('error');
         }
@@ -60,15 +63,16 @@ const App: React.FC = () => {
     const poll = setInterval(syncFromSheets, POLL_INTERVAL);
     
     const handleStorageChange = (e: StorageEvent) => {
-        if (e.key === 'libra_signals' || e.key === 'libra_watchlist') {
-            const latestWatch = localStorage.getItem('libra_watchlist');
-            const latestSignals = localStorage.getItem('libra_signals');
-            if (latestWatch) setWatchlist(JSON.parse(latestWatch));
-            if (latestSignals) setSignals(JSON.parse(latestSignals));
+        if (['libra_signals', 'libra_watchlist', 'libra_users'].includes(e.key || '')) {
+            const data = localStorage.getItem(e.key!);
+            if (data) {
+                if (e.key === 'libra_watchlist') setWatchlist(JSON.parse(data));
+                if (e.key === 'libra_signals') setSignals(JSON.parse(data));
+                if (e.key === 'libra_users') setUsers(JSON.parse(data));
+            }
         }
     };
     window.addEventListener('storage', handleStorageChange);
-
     return () => {
         clearInterval(poll);
         window.removeEventListener('storage', handleStorageChange);
@@ -88,7 +92,6 @@ const App: React.FC = () => {
   };
 
   const handleTestLink = () => {
-    // URL updated to the latest provided by the user
     window.open('https://script.google.com/macros/s/AKfycbyzmnhEsjwlQcxfchobNHnpRSe9H8cNWAuxTEblsWxLLyXiNH18D_JxaMDhV9QwJ8l5/exec', '_blank');
   };
 
@@ -106,6 +109,8 @@ const App: React.FC = () => {
                     onUpdateWatchlist={(list) => setWatchlist(list)}
                     signals={signals}
                     onUpdateSignals={(list) => setSignals(list)}
+                    users={users}
+                    onUpdateUsers={(list) => setUsers(list)}
                 />
             ) : <Dashboard watchlist={watchlist} signals={signals} />;
         default: return <Dashboard watchlist={watchlist} signals={signals} />;
@@ -113,20 +118,11 @@ const App: React.FC = () => {
   };
 
   return (
-    <Layout 
-        user={user} 
-        onLogout={handleLogout}
-        currentPage={page}
-        onNavigate={setPage}
-    >
+    <Layout user={user} onLogout={handleLogout} currentPage={page} onNavigate={setPage}>
       <div className="relative">
-        {/* Connection Status Bar */}
         <div className="fixed top-4 right-4 z-[60] flex items-center space-x-2">
             {connectionStatus === 'error' ? (
-                <button 
-                  onClick={syncFromSheets}
-                  className="bg-rose-600 text-white px-3 py-1 rounded-full text-[10px] font-bold shadow-lg flex items-center hover:bg-rose-500 transition-colors"
-                >
+                <button onClick={syncFromSheets} className="bg-rose-600 text-white px-3 py-1 rounded-full text-[10px] font-bold shadow-lg flex items-center">
                     <WifiOff size={10} className="mr-1.5" />
                     <span>SYNC ERROR</span>
                 </button>
@@ -144,36 +140,19 @@ const App: React.FC = () => {
         </div>
 
         {connectionStatus === 'error' && (
-            <div className="mb-6 bg-slate-900 border-2 border-rose-500/50 rounded-xl overflow-hidden shadow-2xl animate-in fade-in slide-in-from-top-4">
-                <div className="bg-rose-500/10 p-4 border-b border-rose-500/20 flex items-center">
-                    <ShieldAlert className="text-rose-500 mr-3" size={20} />
-                    <h3 className="font-bold text-rose-500 text-sm">Action Required: Connection Blocked</h3>
+            <div className="mb-6 bg-slate-900 border-2 border-rose-500/50 rounded-xl p-5 shadow-2xl">
+                <div className="flex items-center text-rose-500 mb-3">
+                    <ShieldAlert className="mr-3" size={20} />
+                    <h3 className="font-bold">Connection Blocked</h3>
                 </div>
-                <div className="p-5 text-xs text-slate-300 space-y-3">
-                    <p className="font-medium text-white">Your browser is blocking the data sync. This is 100% fixable by checking your Google Script settings:</p>
-                    <div className="space-y-2 bg-slate-950 p-3 rounded border border-slate-800 font-mono text-[10px]">
-                        <p className="flex items-start"><AlertCircle size={10} className="mr-2 mt-0.5 text-blue-400" /> 1. Open your Google Apps Script project.</p>
-                        <p className="flex items-start"><AlertCircle size={10} className="mr-2 mt-0.5 text-blue-400" /> 2. Click <b>Deploy</b> (top right) &gt; <b>New Deployment</b>.</p>
-                        <p className="flex items-start"><AlertCircle size={10} className="mr-2 mt-0.5 text-blue-400" /> 3. Select <b>Web App</b>. Set <b>Who has access</b> to <b>"Anyone"</b>.</p>
-                        <p className="flex items-start"><AlertCircle size={10} className="mr-2 mt-0.5 text-blue-400" /> 4. Copy the URL and paste it into the code (Ensure it ends in <b>/exec</b>).</p>
-                    </div>
-                    <div className="flex flex-col sm:flex-row gap-2 pt-2">
-                        <button 
-                            onClick={handleTestLink}
-                            className="flex-1 bg-blue-600 hover:bg-blue-500 text-white font-bold py-2 px-4 rounded flex items-center justify-center transition-colors"
-                        >
-                            <ExternalLink size={14} className="mr-2" />
-                            Step 5: Test URL Directly
-                        </button>
-                        <button 
-                            onClick={syncFromSheets}
-                            className="flex-1 bg-slate-800 hover:bg-slate-700 text-white font-bold py-2 px-4 rounded flex items-center justify-center transition-colors"
-                        >
-                            <RefreshCw size={14} className="mr-2" />
-                            Retry Connection
-                        </button>
-                    </div>
-                    <p className="text-[10px] text-slate-500 italic">If 'Test URL' asks for a login, your script is NOT set to 'Anyone'.</p>
+                <p className="text-xs text-slate-300 mb-4">The Google Script connection is failing. Ensure Deployment is set to 'Anyone'.</p>
+                <div className="flex gap-2">
+                    <button onClick={handleTestLink} className="flex-1 bg-blue-600 py-2 rounded text-xs font-bold text-white flex items-center justify-center">
+                        <ExternalLink size={12} className="mr-2" /> Test Script
+                    </button>
+                    <button onClick={syncFromSheets} className="flex-1 bg-slate-800 py-2 rounded text-xs font-bold text-white flex items-center justify-center">
+                        <RefreshCw size={12} className="mr-2" /> Retry
+                    </button>
                 </div>
             </div>
         )}
