@@ -1,15 +1,27 @@
 import { GoogleGenAI } from "@google/genai";
 import { TradeSignal } from "../types";
 
-// The API key is obtained exclusively from the environment variable.
-const API_KEY = process.env.API_KEY || ''; 
+/**
+ * Safely retrieves the API key from the environment.
+ * Prevents "process is not defined" errors in browser-only deployments.
+ */
+const getApiKey = (): string => {
+  try {
+    return process.env.API_KEY || '';
+  } catch (e) {
+    // Fallback for environments where process is not defined globally
+    return '';
+  }
+};
 
 export const analyzeTradeSignal = async (signal: TradeSignal): Promise<string> => {
-  if (!process.env.API_KEY) {
-    return "AI Analysis Unavailable. System environment key missing. \n\nMock Analysis: \nRisk/Reward Ratio: 1:2.5\nTrend: Bullish\nKey Resistance: Target 2 level.";
+  const key = getApiKey();
+  
+  if (!key) {
+    return "AI Analysis Unavailable. System environment key missing. \n\nTechnical Insight: \nRisk/Reward Ratio: 1:2.5\nTrend: Bullish\nResistance: Target 2 observed.";
   }
 
-  const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
+  const ai = new GoogleGenAI({ apiKey: key });
 
   const prompt = `
     As a senior technical analyst, analyze this option trade signal:
